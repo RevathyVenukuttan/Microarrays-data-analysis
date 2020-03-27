@@ -1,0 +1,120 @@
+---
+title: 'Data Preprocessing and DE analysis'
+author: "Revathy Venukuttan"
+date: "February 19, 2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Dataset
+
+This analysis uses 10 microarray data generated using Affymetrix Human Genome U133A GeneChip. The experiment was performed to quantify gene expression on breast cancer cell line for before and after treatment with the drug Tamoxifen. There are 5 replicates each for test and control groups.
+
+```{r packages, include=FALSE}
+#All packages that were used for conducting the analysis are listed below
+library(Biobase)
+library(limma)
+library(affy)
+library(annotate)
+library(hgu133a.db)
+library(affydata)
+library(statmod)
+library(ComplexHeatmap)
+library(gplots)
+library(topGO)
+```
+
+Data is read into R using the ReadAffy() function and diagnostic plots (Box plot, Histogram) are used to visualize it.
+
+```{r datainput, include=FALSE}
+setwd("D:/Academia/Sem2/Computational Functional Genomics/Dataset")
+targets <- readTargets("TAM-status-hgu133a.txt")
+data <- ReadAffy()
+```
+
+```{r boxplot.data, echo=FALSE}
+boxplot(data, ylab="Log Int", xlab="Samples", main="Boxplot for Raw data", cex.axis=0.5)
+```
+```{r histogram, echo=FALSE}
+hist(data, main="Histogram for Raw data",col="blue")
+```
+
+## Preprocessing
+
+Preprocessing includes Backgroung correcting, Normalization and calculating of expressions. This is done using the rma function which encapsulates all the 3 operations in this single function. Results from rma analysis 22283 genes for the 10 replicates. The results from rma are written into a dataframe for the ease of viewing.
+
+```{r rma, include=FALSE}
+data.rma <- rma(data)
+my_frame <- data.frame(exprs(data.rma)) #written as a dataframe for the ease of viewing
+```
+
+Boxplot and Histogram are plotted to visualize the effects of normalization. The plots are seen below:
+
+```{r boxplot.rma, echo=FALSE}
+boxplot(exprs(data.rma), xlab="Samples", ylab="Log int", main="Boxplot after Normalization", cex.axis=0.5)
+```
+
+```{r hist after rma, echo=FALSE}
+hist(normalize(data), main="Histogram after Normalization")
+```
+
+From the boxplot, it can be observed that there are a lot of extreme values for log int gene expressions in all samples and all the curves converges into one density curve in the histogram after normalization.
+
+## Gene Annotation
+
+Genes annotation is done using the hgu133a.db package so as to get symbols of each of the 22283 genes. An example for getting the gene symbol with its ID is shown below for gene ID: 1053_at.
+
+```{r gene annotation, echo=FALSE}
+Gene.ID <- featureNames(data.rma)
+symbol <- getSYMBOL(Gene.ID, "hgu133a.db")
+fData(data.rma) <- data.frame(symbol=symbol)
+get("216871_at", env=hgu133aENTREZID)
+```
+
+
+## Differential Expression Analysis
+
+DE Analysis is performed on the microarray cell data to find out the genes which are differentially expressed. Design matrix for the analysis is constructed taking into consideration that 5 samples are test and 5 are control for drug treatment. DE analysis is performed using lmFit function and eBayes function and p-values are adjusted using Benjamini Hochberg correction.
+
+```{r DE analysis, echo=FALSE}
+Sample <- factor(targets$tam, levels=c("0","1"))
+design <- model.matrix(~Sample) 
+design
+fit<- lmFit(data.rma, design)
+fit <- eBayes(fit)
+results <- decideTests(fit, method= "global",
+                       adjust.method = "BH")
+summary(results)
+```
+
+From the results obtained, it can be seen that there are 1881 upregulated genes and 1383 downregulated genes. Therefore, the number of **Differentially expressed genes = 3264**.
+This value was confirmed by using a for-loop and checking for adjusted p-values less than 0.05 (FDR) which also yielded the same result. 
+
+```{r ,echo=FALSE}
+de.gene <- topTable(fit, coef="Sample0", n=22283)
+n=0
+for (i in 1:22283) {
+  if (de.gene$adj.P.Val[i]<0.05){n=n+1}
+}
+n
+
+```
+
+A Mean-Difference plot (MD plot) given below shows the variation of log fold changes with the average log values.
+
+```{r MD plot, echo=FALSE}
+plotMD(fit, coef="Sample0",status=results[,2],values=c(1,-1),hl.col=c("red","blue"))
+```
+
+The top 20 differentially expressed genes along with log fold change, adjusted p-values and the symbols are shown below:
+
+```{r top20, echo=FALSE}
+top.tab <- topTable(fit, coef="Sample0", n=20)
+top.tab[, c("logFC","adj.P.Val")]
+top.tab
+```

@@ -1,0 +1,117 @@
+---
+title: "Gene Set Enrichment Analysis"
+author: "Revathy Venukuttan"
+date: "March 2, 2019"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r libraries, include=FALSE}
+#All packages that were used for conducting the analysis are listed below
+library(Biobase)
+library(limma)
+library(affy)
+library(annotate)
+library(hgu133a.db)
+library(affydata)
+library(statmod)
+library(ComplexHeatmap)
+library(gplots)
+library(topGO)
+library(dplyr)
+library(pathview)
+library(gage)
+library(gageData)
+```
+
+
+##Venn Diagram and Volcano Plot
+
+Venn diagram and Volcano plots are plotted for the results obtained from Differential expression analysis. Venn diagram is plotted for both downregulated and upregulated genes and Volcano plots are for the top 20 differentially expressed genes. 
+
+```{r Venn diagram, echo=FALSE}
+vennDiagram(results, include = c("up","down"), main= "Venn Diagram for Upregulated and Downregulated genes")
+```
+
+
+```{r volcano plot, echo=FALSE}
+volcanoplot(fit,coef=2,highlight=20,names=fit$gene$NAME, main="Volcano plot for top 20 DE genes")
+```
+
+##Heatmap
+
+Heatmap indicating correlation between the DE genes and the different samples are plotted using the ComplexHeatmap package. 
+
+```{r heatmap, echo=FALSE}
+de.genes <- topTable(fit, coef="Sample0", n=3264)
+row.id <- rownames(de.genes)
+heatmap.2(exprs(data.rma)[row.id,], trace = "none", scale = "row", srtCol = 45, margins = c(8,8))
+```
+
+##GO term Enrichment Analysis
+
+GO term Enrichment analysis is performed to derive information about the differentially expressed genes from already available biological knowledge database.
+
+Here, the DE genes are first mapped to their respective Entrez ID to perform the Go term analysis. **goana** function limma package is utilized for Gene Ontology analysis and GO term enrichment is done using the **topGO** function of topGO package. 
+
+'goana' has inbuilt function that computes one-sided hypergeometric statistic which is equivalent to Fisher's exact test. For this reason, seperate hypothesis testing was not performed for the DE gene list.
+
+Below seen are the top 20 genes after GO enrichment analysis:
+
+```{r go term analysis, echo=FALSE}
+fit$genes$Entrez <- mapIds(hgu133a.db, 
+                                keys= as.character(fit$genes$symbol),
+                                column = "ENTREZID", keytype = "SYMBOL")
+go <- goana(fit, coef = ncol(fit), species = "Hs", geneid = fit$genes$Entrez, FDR = 0.05)
+top <- topGO(go,n=20,truncate="50")
+top
+```
+
+##GAGE Analysis
+
+**gage** package is used for performing gene set enrichment analysis or pathway analysis. The results of the analysis are used further to pull out the top 5 upregulated genes an dtheir pathways are plotted using **Pathview** package.
+
+```{r gage analysis, echo=FALSE}
+data("kegg.sets.hs")
+de.genes <- topTable(fit, coef="Sample0", n=3264)
+foldchanges = de.genes$logFC
+names(foldchanges) = de.genes$Entrez
+kegg.res <- gage(foldchanges, gsets = kegg.sets.hs, same.dir = TRUE)
+lapply(kegg.res, head)
+
+#pull out the top 5 upregulated pathways
+
+kegg.res.pathways = data.frame(id=rownames(kegg.res$greater), kegg.res$greater) %>% 
+  tbl_df() %>% 
+  filter(row_number()<=5) %>% 
+  .$id %>% 
+  as.character()
+kegg.res.pathways
+
+# Get the IDs.
+kegg.res.ids = substr(kegg.res.pathways, start=1, stop=8)
+
+```
+
+
+```{r eval=FALSE, include=FALSE, echo=FALSE}
+# Define plotting function for applying later
+plot_pathway = function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="hsa", new.signature=FALSE)
+
+# plot multiple pathways (plots saved to disk and returns a throwaway list object)
+tmp = sapply(kegg.res.ids, function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="hsa"))
+
+
+```
+
+
